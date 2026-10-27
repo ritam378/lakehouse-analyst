@@ -1,0 +1,30 @@
+[project]
+name = "lakehouse-analyst"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "ritam378", email = "ritam378@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=2.0.0",
+    "langchain-anthropic>=1.7.6",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.17",
+    "matplotlib>=3.11.2",
+    "mcp>=1.30.0",
+    "pandas>=3.1.0",
+    "pyarrow>=26.0.0",
+    "pyiceberg[sql-sqlite]>=0.12.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+lakehouse-analyst = "lakehouse_analyst:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
