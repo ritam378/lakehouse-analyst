@@ -1,20 +1,17 @@
-'''
-# Test on the tiny copy first
-uv run python scripts/load_iceberg.py ~/lab/data/tpcds_sf0_1.duckdb
-uv run python scripts/make_views.py
-uv run python scripts/check_views.py ~/lab/data/tpcds_sf0_1.duckdb
-
-# Then the real data
-uv run python scripts/load_iceberg.py ~/lab/data/tpcds_sf7.duckdb
-uv run python scripts/make_views.py
-uv run python scripts/check_views.py ~/lab/data/tpcds_sf7.duckdb
-'''
-
 """Check that every view in lakehouse.duckdb returns the same row count as the source DuckDB file,
 then run one real TPC-DS-style query through the views.
 
 Usage:
-    uv run python scripts/check_views.py ~/lab/data/tpcds_sf10.duckdb
+    uv run python scripts/check_views.py ~/lab/data/tpcds_sf7.duckdb
+
+Full sequence (test on the tiny copy first, then the real data):
+    uv run python scripts/load_iceberg.py ~/lab/data/tpcds_sf0_1.duckdb
+    uv run python scripts/make_views.py
+    uv run python scripts/check_views.py ~/lab/data/tpcds_sf0_1.duckdb
+
+    uv run python scripts/load_iceberg.py ~/lab/data/tpcds_sf7.duckdb
+    uv run python scripts/make_views.py
+    uv run python scripts/check_views.py ~/lab/data/tpcds_sf7.duckdb
 """
 import os
 import sys

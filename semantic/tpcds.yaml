@@ -1,0 +1,274 @@
+# Semantic layer for the TPC-DS lakehouse.
+# Tells agents what the 10 core tables, key columns and business metrics mean.
+# Verify after every edit: uv run python scripts/check_semantic.py ~/lab/data/tpcds_sf0_1.duckdb
+
+about:
+  dataset: TPC-DS retail benchmark. A retailer selling through three channels - stores, web and catalog.
+  sales_period: >-
+    Full years 1998 to 2002 for all channels and returns. 2003 has only January, so
+    don't treat 2003 as a full year (checked on SF 0.1 and SF 7).
+  default_channel: >-
+    "Sales" or "revenue" with no channel named means STORE sales only (store_sales).
+    Use web_sales or catalog_sales only when the question names the web or catalog channel,
+    and add all three only when it asks for total / all-channel / combined sales.
+  default_revenue: >-
+    Revenue means net paid (ss_net_paid, ws_net_paid, cs_net_paid): amount paid after
+    discounts, before tax and shipping.
+  nulls: >-
+    About 4-5% of fact rows have NULL foreign keys or amounts (e.g. ss_customer_sk,
+    ss_sold_date_sk, ss_net_paid). Inner joins drop them; that is expected.
+
+tables:
+  store_sales:
+    description: One row per item line in an in-store purchase.
+    grain: ticket line (ss_ticket_number + ss_item_sk)
+    joins:
+      date_dim: ss_sold_date_sk = d_date_sk
+      item: ss_item_sk = i_item_sk
+      customer: ss_customer_sk = c_customer_sk
+      store: ss_store_sk = s_store_sk
+      promotion: ss_promo_sk = p_promo_sk
+      store_returns: ss_ticket_number = sr_ticket_number AND ss_item_sk = sr_item_sk
+    columns:
+      ss_sold_date_sk: Key of the sale day. Not a date - join to date_dim.
+      ss_item_sk: Key of the item sold.
+      ss_customer_sk: Key of the buying customer. NULL for some anonymous sales.
+      ss_store_sk: Key of the store.
+      ss_promo_sk: Key of the promotion applied, if any.
+      ss_ticket_number: Receipt id. Several lines share one ticket; a ticket is one shopping trip.
+      ss_quantity: Units sold on this line.
+      ss_list_price: Catalogue (list) unit price before any reduction.
+      ss_sales_price: Unit price actually charged.
+      ss_ext_sales_price: Quantity x sales price, before coupons.
+      ss_ext_discount_amt: Total discount on the line (list price minus sales price, times quantity).
+      ss_coupon_amt: Coupon value applied to the line.
+      ss_net_paid: Amount paid after discounts and coupons, before tax. Use for revenue.
+      ss_ext_tax: Tax charged on the line.
+      ss_net_profit: Profit on the line after cost. Can be negative.
+
+  store_returns:
+    description: One row per returned item line from an in-store purchase.
+    grain: returned ticket line (sr_ticket_number + sr_item_sk)
+    joins:
+      store_sales: sr_ticket_number = ss_ticket_number AND sr_item_sk = ss_item_sk
+      date_dim: sr_returned_date_sk = d_date_sk
+      item: sr_item_sk = i_item_sk
+      customer: sr_customer_sk = c_customer_sk
+      store: sr_store_sk = s_store_sk
+    columns:
+      sr_returned_date_sk: Key of the return day (not the original sale day). Join to date_dim.
+      sr_item_sk: Key of the returned item.
+      sr_customer_sk: Key of the customer who returned it.
+      sr_store_sk: Key of the store that took the return.
+      sr_ticket_number: Receipt id of the ORIGINAL sale.
+      sr_return_quantity: Units returned.
+      sr_return_amt: Amount refunded, before tax.
+      sr_fee: Fee charged to the customer for the return.
+      sr_net_loss: Net loss to the retailer from the return.
+
+  web_sales:
+    description: One row per item line in an order placed on the website.
+    grain: order line (ws_order_number + ws_item_sk)
+    joins:
+      date_dim: ws_sold_date_sk = d_date_sk
+      item: ws_item_sk = i_item_sk
+      customer: ws_bill_customer_sk = c_customer_sk
+      promotion: ws_promo_sk = p_promo_sk
+    columns:
+      ws_sold_date_sk: Key of the order day. Join to date_dim.
+      ws_ship_date_sk: Key of the ship day. Join to date_dim only for shipping questions.
+      ws_item_sk: Key of the item sold.
+      ws_bill_customer_sk: Customer who paid. Use this for "customer" by default.
+      ws_ship_customer_sk: Customer the order was shipped to (may differ from the payer).
+      ws_promo_sk: Key of the promotion applied.
+      ws_order_number: Order id. Several lines share one order.
+      ws_quantity: Units sold on this line.
+      ws_sales_price: Unit price charged.
+      ws_ext_sales_price: Quantity x sales price, before coupons.
+      ws_ext_ship_cost: Shipping cost charged for the line.
+      ws_net_paid: Amount paid after discounts, before tax and shipping. Use for web revenue.
+      ws_net_profit: Profit on the line after cost.
+
+  catalog_sales:
+    description: One row per item line in an order placed through the printed catalog (phone/mail).
+    grain: order line (cs_order_number + cs_item_sk)
+    joins:
+      date_dim: cs_sold_date_sk = d_date_sk
+      item: cs_item_sk = i_item_sk
+      customer: cs_bill_customer_sk = c_customer_sk
+      promotion: cs_promo_sk = p_promo_sk
+    columns:
+      cs_sold_date_sk: Key of the order day. Join to date_dim.
+      cs_ship_date_sk: Key of the ship day.
+      cs_item_sk: Key of the item sold.
+      cs_bill_customer_sk: Customer who paid. Use this for "customer" by default.
+      cs_ship_customer_sk: Customer the order was shipped to.
+      cs_promo_sk: Key of the promotion applied.
+      cs_order_number: Order id. Several lines share one order.
+      cs_quantity: Units sold on this line.
+      cs_sales_price: Unit price charged.
+      cs_ext_sales_price: Quantity x sales price, before coupons.
+      cs_ext_ship_cost: Shipping cost charged for the line.
+      cs_net_paid: Amount paid after discounts, before tax and shipping. Use for catalog revenue.
+      cs_net_profit: Profit on the line after cost.
+
+  date_dim:
+    description: One row per calendar day. Every date filter goes through this table.
+    grain: day (d_date_sk)
+    columns:
+      d_date_sk: Surrogate key that fact tables join to.
+      d_date: The calendar date (DATE type).
+      d_year: Year, e.g. 2001.
+      d_moy: Month of year, 1-12.
+      d_qoy: Quarter of year, 1-4.
+      d_dom: Day of month, 1-31.
+      d_dow: Day of week, 0 = Sunday ... 6 = Saturday.
+      d_day_name: Day name, e.g. Monday.
+      d_weekend: Y on Saturday and Sunday, else N.
+      d_holiday: Y on public holidays, else N.
+      d_month_seq: Running month number; use for "last N months" ranges.
+
+  item:
+    description: One row per version of a product. Products keep history, so one product can have several rows.
+    grain: item version (i_item_sk); the product itself is i_item_id
+    joins:
+      store_sales: i_item_sk = ss_item_sk
+      web_sales: i_item_sk = ws_item_sk
+      catalog_sales: i_item_sk = cs_item_sk
+    columns:
+      i_item_sk: Surrogate key of this item version. Fact tables join here.
+      i_item_id: Business product code. Shared by all versions of the same product.
+      i_rec_start_date: First day this version was valid.
+      i_rec_end_date: Last day this version was valid; NULL for the current version.
+      i_item_desc: Free-text description.
+      i_current_price: Current list price of the item.
+      i_brand: Brand name.
+      i_class: Class (sub-category), e.g. dresses, football.
+      i_category: Top-level category - Books, Children, Electronics, Home, Jewelry, Men, Music, Shoes, Sports, Women (a few NULL).
+      i_manufact_id: Manufacturer id.
+      i_color: Colour, lowercase, e.g. red, navy.
+      i_size: Size, e.g. small, large, N/A.
+      i_product_name: Product name.
+
+  customer:
+    description: One row per customer.
+    grain: customer (c_customer_sk)
+    joins:
+      customer_address: c_current_addr_sk = ca_address_sk
+      store_sales: c_customer_sk = ss_customer_sk
+      web_sales: c_customer_sk = ws_bill_customer_sk
+      catalog_sales: c_customer_sk = cs_bill_customer_sk
+    columns:
+      c_customer_sk: Surrogate key. Fact tables join here.
+      c_customer_id: Business customer code.
+      c_current_addr_sk: Key of the current address. Join to customer_address for state/city.
+      c_first_name: First name.
+      c_last_name: Last name.
+      c_salutation: Mr., Mrs., Ms., Dr., Sir, Miss.
+      c_preferred_cust_flag: Y if the customer is in the preferred (loyalty) programme.
+      c_birth_year: Year of birth.
+      c_birth_month: Month of birth, 1-12.
+      c_birth_country: Country of birth, upper case, e.g. GERMANY.
+      c_email_address: Email address.
+
+  customer_address:
+    description: One row per postal address. Customers point to their current address.
+    grain: address (ca_address_sk)
+    joins:
+      customer: ca_address_sk = c_current_addr_sk
+    columns:
+      ca_address_sk: Surrogate key.
+      ca_city: City.
+      ca_county: County.
+      ca_state: Two-letter US state code, e.g. TX.
+      ca_zip: ZIP code (text).
+      ca_country: Country (always United States).
+      ca_gmt_offset: Time-zone offset from GMT, e.g. -5.00.
+      ca_location_type: apartment, condo or single family.
+
+  store:
+    description: >-
+      One row per version of a physical store. Stores keep history like items, so one store
+      (s_store_id) can have several rows. SF 0.1 has a single store; SF 7 has 72 rows,
+      all in TN or SD, and store names repeat - group by s_store_id, not s_store_name.
+    grain: store version (s_store_sk); the store itself is s_store_id
+    joins:
+      store_sales: s_store_sk = ss_store_sk
+      store_returns: s_store_sk = sr_store_sk
+    columns:
+      s_store_sk: Surrogate key. Fact tables join here.
+      s_store_id: Business store code, shared by all versions of one store.
+      s_store_name: Short store name. Not unique.
+      s_number_employees: Number of employees.
+      s_floor_space: Floor space in square feet.
+      s_manager: Store manager name.
+      s_city: City.
+      s_county: County.
+      s_state: Two-letter state code.
+      s_market_id: Market (region) id.
+      s_tax_percentage: Sales tax rate.
+
+  promotion:
+    description: One row per marketing promotion.
+    grain: promotion (p_promo_sk)
+    joins:
+      store_sales: p_promo_sk = ss_promo_sk
+      web_sales: p_promo_sk = ws_promo_sk
+      catalog_sales: p_promo_sk = cs_promo_sk
+    columns:
+      p_promo_sk: Surrogate key. Fact tables join here.
+      p_promo_id: Business promotion code.
+      p_promo_name: Promotion name.
+      p_cost: Cost of running the promotion.
+      p_response_target: Target number of responses.
+      p_channel_email: Y if advertised by email. Always N or NULL in this data.
+      p_channel_tv: Y if advertised on TV. Always N or NULL in this data.
+      p_channel_dmail: Y if advertised by direct mail. The only channel flag that is ever Y (about half of promotions).
+      p_channel_event: Y if advertised at an event. Always N or NULL in this data.
+      p_discount_active: Y if the promotion gives a discount. Always N or NULL in this data.
+      p_purpose: Purpose text (mostly "Unknown").
+
+metrics:
+  store_revenue: SUM(ss_net_paid)
+  web_revenue: SUM(ws_net_paid)
+  catalog_revenue: SUM(cs_net_paid)
+  total_revenue: store_revenue + web_revenue + catalog_revenue (only when "all channels" / "total" is asked)
+  store_profit: SUM(ss_net_profit)
+  web_profit: SUM(ws_net_profit)
+  catalog_profit: SUM(cs_net_profit)
+  units_sold: SUM(ss_quantity)
+  store_returns_amount: SUM(sr_return_amt)
+  store_return_rate: SUM(sr_return_amt) / SUM(ss_net_paid), with store_returns LEFT JOINed on both ticket and item
+  store_tickets: COUNT(DISTINCT ss_ticket_number)
+  average_ticket_value: SUM(ss_net_paid) / COUNT(DISTINCT ss_ticket_number)
+  web_orders: COUNT(DISTINCT ws_order_number)
+  catalog_orders: COUNT(DISTINCT cs_order_number)
+  products: COUNT(DISTINCT i_item_id)
+  stores: COUNT(DISTINCT s_store_id)
+
+synonyms:
+  revenue: [sales, turnover, takings, income, net paid]
+  profit: [margin, earnings, net profit]
+  customer: [shopper, buyer, client]
+  item: [product, sku, article]
+  category: [department]
+  class: [subcategory, sub-category]
+  store: [shop, branch, outlet]
+  web: [online, internet, website]
+  catalog: [mail order, phone order]
+  ticket: [receipt, basket, transaction, shopping trip]
+  return: [refund]
+
+rules:
+  - Join fact tables to dimensions on _sk columns, never on _id columns.
+  - Filter years and months through date_dim (d_year, d_moy, d_qoy), never on _sk values.
+  - Join store_returns to store_sales on BOTH ticket number and item key. Ticket alone fans out and inflates totals.
+  - Compute return rates with store_sales LEFT JOIN store_returns, so sales without returns stay in the denominator.
+  - Unless a channel is named, sales and revenue mean store sales (store_sales.ss_net_paid).
+  - Combine channels with UNION ALL of per-channel aggregates, never by joining the three fact tables to each other.
+  - The item table keeps history. Count products with COUNT(DISTINCT i_item_id), not i_item_sk.
+  - The store table keeps history. Count stores with COUNT(DISTINCT s_store_id).
+  - A customer's state or city comes from customer.c_current_addr_sk = customer_address.ca_address_sk.
+  - For web and catalog, the customer is the bill customer (ws_bill_customer_sk, cs_bill_customer_sk).
+  - Returns are dated by return day (sr_returned_date_sk); sales by sale day. Say which one when filtering returns by year.
+  - Exclude NULL categories, states and customers from rankings unless asked.
